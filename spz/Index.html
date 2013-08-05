@@ -1,0 +1,466 @@
+﻿<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+    <title>Demo</title>
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width">
+    <link href="css/normalize.css" rel="stylesheet" />
+    <link href="css/main.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="wrap">
+        <div id="gmcontainer" class="container text-center">
+            <div id="gmstats" class="game-stats clearfix">
+            </div>
+            <canvas id="gmcanvas" width="200" height="200">
+                <p class="chromeframe">
+                    This application is not compatible with your browser. Please <a href="http://browsehappy.com/">upgrade your browser</a> or 
+                    <a href="http://www.google.com/chromeframe/?redirect=true">activate Google Chrome Frame</a> to improve your experience.
+                </p>
+            </canvas>
+        </div>
+    </div>
+
+    <script src="js/utilities.js"></script>
+    <script src="js/Tiles.js"></script>
+    <script src="js/Player.js"></script>
+    <script src="js/Levels.js"></script>
+    <script>    
+        var Gem = function (tile, width, height, color) {
+            var self = this;
+
+            this.tile = tile;
+            this.width = width;
+            this.height = height;
+            this.color = color || "rgba(255, 255, 255, 0.9)";
+
+            this.draw = function (canvasContext) {
+                var x = (self.tile.column * this.width),
+                    y = (self.tile.row * this.height); 
+                var padding = 2;
+
+                canvasContext.save();
+
+                canvasContext.fillStyle = self.color;
+                canvasContext.strokeStyle = '#000';
+                canvasContext.beginPath();
+                //canvasContext.arc(x, y, this.width / 4, 0, Math.PI * 2, true);
+                canvasContext.moveTo(x + (self.width / 2), (y + self.height) - padding);
+                canvasContext.lineTo((x + self.width) - padding, y + (self.height / 2));
+                canvasContext.lineTo(x + (self.width / 2), y + padding);
+                canvasContext.lineTo(x + padding, y + (self.height / 2));
+                canvasContext.lineTo(x + (self.width / 2), (y + self.height) - padding);
+                canvasContext.fill();
+                canvasContext.stroke();
+
+                canvasContext.restore();
+            };
+        };
+
+        var Jewel = function (tile, width, height, color) {
+            var self = this;
+
+            this.tile = tile;
+            this.width = width;
+            this.height = height;
+            this.color = color || "rgba(255, 255, 255, 0.9)";
+
+            this.draw = function (canvasContext) {
+                var x = (self.tile.column * this.width) + (this.width / 2),
+                    y = (self.tile.row * this.height) + (this.height / 2);
+
+                canvasContext.save();
+
+                canvasContext.fillStyle = self.color;
+                canvasContext.strokeStyle = '#000';
+                canvasContext.beginPath();
+                canvasContext.arc(x, y, this.width / 4, 0, Math.PI * 2, true);
+                canvasContext.fill();
+                canvasContext.stroke();
+
+                canvasContext.restore();
+            };
+        };
+
+        /* The game's main functions */
+        var main = (function () {
+            /* app settings */
+            var Settings = {
+                /* number of rows of tiles to include on the board */
+                NUMBER_OF_ROWS: 10,
+                /* number of columns of tiles to include on the board */
+                NUMBER_OF_COLUMNS: 10
+            };
+
+            var GameStatus = {
+                NotStarted: 1,
+                Started: 2,
+                Running: 3,
+                Win: 4,
+                Lose: 5
+            };
+
+            var gCanvas,
+                canvasWidth,
+                canvasHeight,
+                gContext,
+                gStatusElement,
+                board,
+                numTiles,
+                player,
+                gems = [],
+                jewels = [],
+                monsters = [],
+                score = 0,
+                currentLevel = 0,
+                maxTurns = 0,
+                turnsUsed = 0,
+                gameStatus = GameStatus.NotStarted;
+
+            /*************************************
+             Initialization and setup functions
+             *************************************/
+
+            function init(canvasElement, statusElement) {
+                /// <summary>Initializes the game</summary>
+                /// <param name="canvasElement" type="Canvas">The canvas element to use for the game.</param>
+
+                canvasWidth = Tiles.Settings.TILE_WIDTH * Settings.NUMBER_OF_COLUMNS;
+                canvasHeight = Tiles.Settings.TILE_HEIGHT * Settings.NUMBER_OF_ROWS;
+                gCanvas = canvasElement;
+                gCanvas.width = canvasWidth;
+                gCanvas.height = canvasHeight;
+
+                gContext = gCanvas.getContext("2d");
+
+                gStatusElement = statusElement;
+
+                updateStatusElement();
+            }
+
+            function newGame(level) {
+                /// <summary>Starts a new game level.</summary>
+                /// <param name="currentLevel" type="Number">(Optional) Sets the game level. Defaults to 1.</param>
+
+                currentLevel = (level === null || level === undefined || level === 0) ? 1 : level;
+
+                // if there are no more levels, declare the player a WINNER!
+                if (currentLevel > Levels.highestLevel) {
+                    endGame(true);
+                }
+
+                var levelSettings = Levels.getLevelSettings(currentLevel);
+
+                gameStatus = GameStatus.Started;
+                turnsUsed = 0;
+                maxTurns = levelSettings.maxTurns;
+                board = [];
+
+                var tileid = 0;
+
+                for (var row = 0; row < Settings.NUMBER_OF_ROWS; ++row) {
+                    for (var column = 0; column < Settings.NUMBER_OF_COLUMNS; ++column) {
+                        board.push(new Tiles.Tile(tileid++, row, column, levelSettings.maxColors));
+                    }
+                }
+
+                numTiles = board.length;
+
+                gCanvas.addEventListener('mousedown', gCanvasOnClick, false);
+                gCanvas.addEventListener('touchstart', gCanvasOnClick, false);
+                document.addEventListener('keydown', OnKeyDown, false);
+                document.addEventListener('keyup', OnKeyUp, false);
+
+                player = new Player(board[Utilities.getRandomInt(0, numTiles)], Tiles.Settings.TILE_WIDTH, Tiles.Settings.TILE_HEIGHT, []);
+
+                populateGems();
+                populateJewels();
+
+                drawBoard();
+                //player.draw(gContext);
+                updateStatusElement();
+            }
+
+            /*************************************
+             End Initialization and setup functions
+             *************************************/
+
+
+            /*************************************
+             Event handler functions
+             *************************************/
+
+            function gCanvasOnClick(event) {
+                var tileIndex = getCursorPosition(event);
+                
+                if (tileIndex > -1 && turnsUsed < maxTurns) {
+                    gameStatus = GameStatus.Running;
+                    board[tileIndex].flipColor(gContext);
+
+                    if (board[tileIndex].id === player.currentTile.id) {
+                        player.draw(gContext);
+                    }
+
+                    if (++turnsUsed >= maxTurns) {
+                        gameStatus = GameStatus.Lose;
+                        endGame();
+                    } else {
+                        updateStatusElement();
+                    }
+                }
+
+            }
+
+            function OnKeyDown(event) {
+                var key = event.keyCode || event.which,
+                    KeyCodes = Utilities.KeyCodes;
+
+                // make sure the player isn't already moving so we limit him to one tile per key down (for now at least).
+                if (player.isMoving === false) {
+                    if (key === KeyCodes.LEFT || key === KeyCodes.A) {
+                        // make sure the current tile isn't all the way over to the left.
+                        if (player.currentTile.column > 0) {
+                            player.move(board[player.currentTile.id - 1], gContext);
+                            collectTileContents();
+                            drawBoard();
+                        }
+                    } else if (key === KeyCodes.UP || key === KeyCodes.W) {
+                        // make sure player isn't standing at a top tile
+                        if (player.currentTile.row > 0) {
+                            player.move(board[player.currentTile.id - Settings.NUMBER_OF_COLUMNS], gContext);
+                            collectTileContents();
+                            drawBoard();
+                        }
+                    } else if (key === KeyCodes.RIGHT || key === KeyCodes.D) {
+                        // make sure player isn't standing on a far right tile
+                        if (player.currentTile.column < Settings.NUMBER_OF_COLUMNS - 1) {
+                            player.move(board[player.currentTile.id + 1], gContext);
+                            collectTileContents();
+                            drawBoard();
+                        }
+                    } else if (key === KeyCodes.DOWN || key === KeyCodes.S) {
+                        // make sure player isn't standing at a bottom tile
+                        if (player.currentTile.row < Settings.NUMBER_OF_ROWS - 1) {
+                            player.move(board[player.currentTile.id + Settings.NUMBER_OF_COLUMNS], gContext);
+                            collectTileContents();
+                            drawBoard();
+                        }
+                    }
+                }
+
+                event.preventDefault();
+            }
+
+            function OnKeyUp(event) {
+                player.isMoving = false;
+            }
+
+            /*************************************
+             End Event handler functions
+             *************************************/
+            
+
+            /*************************************
+             methods
+             *************************************/
+
+            function collectTileContents() {
+                gems.forEach(function (gem) {
+                    if (player.currentTile.id === gem.tile.id) {
+                        player.gems.push(gem);
+                        gems = gems.filter(function (element, index, array) {
+                            return (element.id !== array[index].id);
+                        });
+                        console.log(gems);
+                        return;
+                    }
+                });
+
+                if (gems.length === 0) {
+                    newGame(++currentLevel);
+                }
+            }
+
+            function createNewGameButton(buttonText) {
+                var newButton = document.createElement("button");
+                newButton.className = "btn";
+                newButton.innerText = buttonText || "New Game";
+                newButton.addEventListener("click", function () { newGame(); }, false);
+
+                gStatusElement.appendChild(newButton);
+            }
+
+            function drawBoard() {
+                Utilities.canvas.clearCanvas(gContext, canvasWidth, canvasHeight);
+
+                for (var i = 0; i < board.length; ++i) {
+                    board[i].draw(gContext);
+                }
+
+                jewels.forEach(function (jewel) {
+                    jewel.draw(gContext);
+                });
+
+                gems.forEach(function (gem) {
+                    gem.draw(gContext);
+                });
+
+                player.draw(gContext);
+            }
+
+            function endGame(isWinner) {
+                // remove event listeners from the canvas since we're removing the tiles.
+                gCanvas.removeEventListener("click", gCanvasOnClick, false);
+                gCanvas.removeEventListener('touchstart', gCanvasOnClick, false);
+
+                // clear the canvas
+                Utilities.canvas.clearCanvas(gContext, canvasWidth, canvasHeight);
+
+                // reset game variables
+                board = [];
+                currentLevel = 0;
+                maxTurns = 0;
+                turnsUsed = 0;
+
+                // stop running
+                gameStatus = isWinner ? GameStatus.Win : GameStatus.Lose;
+
+                // update the game status
+                updateStatusElement();
+            }
+
+            function flipTile(tileIndex) {
+                //console.log('flipping tile: ' + tileIndex);
+            }
+
+            function getCursorPosition(event) {
+                var x, y, row, column;
+
+                if (event.pageX !== undefined && event.pageY !== undefined) {
+                    x = event.pageX;
+                    y = event.pageY;
+                } else {
+                    x = event.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
+                    y = event.clientY + document.body.scrollTop + document.documentElement.scrollTop;
+                }
+
+                x -= gCanvas.offsetLeft;
+                y -= gCanvas.offsetTop;
+                x = Math.min(x, Settings.NUMBER_OF_COLUMNS * Tiles.Settings.TILE_WIDTH);
+                y = Math.min(y, Settings.NUMBER_OF_ROWS * Tiles.Settings.TILE_HEIGHT);
+                row = Math.floor(y / Tiles.Settings.TILE_HEIGHT);
+                column = Math.floor(x / Tiles.Settings.TILE_WIDTH)
+
+                for (var i = 0; i < numTiles; ++i) {
+                    if (board[i].row === row && board[i].column === column) {
+                        return i;
+                    }
+                }
+
+                return -1;
+            }
+
+            function isTileOccupied(id) {
+                if (id === player.currentTile.id) {
+                    return true;
+                }
+
+                gems.forEach(function (gem) {
+                    if (id === gem.tile.id) {
+                        return true;
+                    }
+                });
+
+                jewels.forEach(function (jewel) {
+                    if (id === jewel.tile.id) {
+                        return true;
+                    }
+                });
+
+                return false;
+            }
+
+            function nextLevel() {
+                // increment the currentLevel count and make sure there is another level to go to.
+                if (++currentLevel <= Levels.highestLevel) {
+                    // if there is, setup the game for the next level.
+                    newGame(currentLevel);
+                } else { // if there are no more levels, end the game.
+                    endGame();
+                }
+            }
+
+            function populateGems() {
+                for (var i = 0; i < levelSettings.numGems.length; ++i) {
+                    var tileIndex = Utilities.getRandomInt(0, numTiles);
+
+                    while (isTileOccupied(tileIndex)) {
+                        tileIndex = Utilities.getRandomInt(0, numTiles);
+                    }
+
+                    gems.push(new Gem(board[tileIndex], Tiles.Settings.TILE_WIDTH, Tiles.Settings.TILE_WIDTH));
+                }
+
+                console.log(gems);
+            }
+
+            function populateJewels() {
+                for (var i = 0; i < levelSettings.numJewels.length; ++i) {
+                    var tileIndex = Utilities.getRandomInt(0, numTiles);
+
+                    while (isTileOccupied(tileIndex)) {
+                        tileIndex = Utilities.getRandomInt(0, numTiles);
+                    }
+
+                    jewels.push(new Jewel(board[tileIndex], Tiles.Settings.TILE_WIDTH, Tiles.Settings.TILE_WIDTH));
+                }
+            }
+
+            function updateStatusElement() {
+                var turnsLeft = maxTurns - turnsUsed,
+                    status = "";
+
+                if (gameStatus === GameStatus.NotStarted) {
+                    status = '<div>Click the Start button to begin.</div>';
+                    gStatusElement.innerHTML = status;
+                    createNewGameButton("Start");
+                } else if (gameStatus === GameStatus.Started || gameStatus === GameStatus.Running) {
+                    status = '<span class="pull-left">Level ' + currentLevel + '</span>';
+
+                    if (turnsLeft > 0) {
+                        status += '<span class="pull-right">Turns left: ' + turnsLeft + '</span>';
+                    } else {
+                        status += '<span class="pull-right">No more turns for you!</span>';
+                    }
+                    gStatusElement.innerHTML = status;
+                } else if (gameStatus === GameStatus.Lose) {
+                    status = "<div>You Lose! Click the New Game button to try again.</div>";
+                    gStatusElement.innerHTML = status;
+                    createNewGameButton();
+                } else if (gameStatus === GameStatus.Win) {
+                    status = "<div>You Win! Click the New Game button to play again.</div>";
+                    gStatusElement.innerHTML = status;
+                    createNewGameButton();
+                }
+            }
+
+
+            /*************************************
+             End methods
+             *************************************/
+
+            /* expose public functions by returning them in an object */
+            return {
+                init: init,
+                newGame: newGame,
+                player: player
+            };
+        }());
+        
+        main.init(document.getElementById('gmcanvas'), document.getElementById('gmstats'));
+        //main.newGame();
+    </script>
+</body>
+</html>
