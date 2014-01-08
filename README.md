@@ -1,7 +1,7 @@
 spz
 ===
 
-Spaz prototype and PoC.
+Spaz prototype and proof of concept.
 
 You, the player, are the black circle. 
 
