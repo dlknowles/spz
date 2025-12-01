@@ -1,5 +1,6 @@
-spz
-===
+> **Archived:** This repo is preserved for historical purposes.
+
+# Spaz
 
 Spaz prototype and proof of concept.
 
